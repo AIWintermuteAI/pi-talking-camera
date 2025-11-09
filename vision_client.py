@@ -5,37 +5,19 @@ import sys
 import os
 import argparse
 import cv2
-import requests
+from openai import OpenAI
 import base64
 
-# HTTP VisionClient for OpenAI API compatible server
-class VisionClient:
-    def __init__(self, api_url):
-        self.api_url = api_url
-
-    def infer(self, image_path, prompt=None, n_predict=64):
-        if prompt is None:
-            prompt = "Describe the image in one short sentence."
-
-        with open(image_path, "rb") as img_file:
-            image_bytes = img_file.read()
-        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-
-        payload = {
-            "prompt": prompt,
-            "max_tokens": n_predict,
-            "image": image_b64
-        }
-        headers = {"Content-Type": "application/json"}
-        response = requests.post(self.api_url, headers=headers, data=json.dumps(payload))
-        response.raise_for_status()
-        return response.json()
+# Function to encode the image
+def encode_image(image_path):
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode("utf-8")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Vision Client (HTTP OpenAI API style)")
-    parser.add_argument("--api_url", type=str, default="http://localhost:8080/v1/completions", help="URL of the OpenAI-compatible server endpoint")
+    parser.add_argument("--api_url", type=str, default="http://localhost:8080/", help="URL of the OpenAI-compatible server endpoint")
     parser.add_argument("--image_path", type=str, help="Path to the image file")
-    parser.add_argument("--prompt", type=str, help="Prompt for the model")
+    parser.add_argument("--prompt", type=str, default="Descrbie the image in one sentence",  help="Prompt for the model")
     parser.add_argument("--n_predict", type=int, default=64, help="Number of tokens to predict")
     parser.add_argument("--use_tts", action="store_true", help="Use piper-tts to speak the generated text")
     args = parser.parse_args()
@@ -52,7 +34,7 @@ if __name__ == "__main__":
             print("Downloading the TTS model...")
             os.system("echo 'Init' | python3 -m piper.download_voices en_US-lessac-medium --data-dir ~/.config/piper-tts --download-dir ~/.config/piper-tts")
 
-    client = VisionClient(args.api_url)
+    client = OpenAI(base_url=args.api_url, api_key="")
     continuos = False
 
     if not image_path:
@@ -81,21 +63,33 @@ if __name__ == "__main__":
         # Run inference
         print("\nRunning inference...")
         image_abspath = os.path.abspath(image_path)
+        base64_image = encode_image(image_abspath)
         try:
-            response = client.infer(image_abspath, args.prompt, args.n_predict)
+            response = client.chat.completions.create(
+                model="models/SmolVLM2-500M-Video-Instruct-Q8_0.gguf",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": args.prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_image}"
+                                }
+                            },
+                        ],
+                    }
+                ],
+                max_tokens=args.n_predict,
+            )
         except Exception as e:
             print(f"Inference failed: {e}")
             sys.exit(1)
 
         # OpenAI API style: response["choices"][0]["text"] or similar
         print("\nGenerated text:")
-        text = None
-        if "choices" in response and len(response["choices"]) > 0:
-            text = response["choices"][0].get("text") or response["choices"][0].get("message", {}).get("content")
-        elif "result" in response and "text" in response["result"]:
-            text = response["result"]["text"]
-        else:
-            text = str(response)
+        text = response.choices[0].message.content
         print(text)
         if args.use_tts and text:
             print("Speaking the generated text...")

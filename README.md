@@ -10,7 +10,7 @@ wget https://huggingface.co/ggml-org/SmolVLM2-500M-Video-Instruct-GGUF/resolve/m
 
 In another terminal install all the Python dependencies for Python client (preferrably use virtual environment):
 ```
-pip install opencv-python piper-tts
+pip install opencv-python piper-tts openai
 ```
 Then in first terminal run the server in llama.cpp folder
 ```
